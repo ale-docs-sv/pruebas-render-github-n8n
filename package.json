@@ -1,12 +1,13 @@
 {
   "name": "worker-gratis",
   "version": "1.0.0",
-  "description": "Worker simulado en Render",
+  "description": "Scraper SEACE en Render",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "puppeteer": "^22.12.0"
   }
 }
