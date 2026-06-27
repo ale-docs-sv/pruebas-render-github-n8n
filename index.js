@@ -4,83 +4,104 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get('/', (req, res) => {
-  res.send('Servicio de Scraping SEACE activo y listo.');
+  res.send('Servicio de Scraping SEACE Activo.');
 });
 
-// ESTE ES EL ENDPOINT QUE LLAMARÁ N8N
 app.get('/scrape-seace', async (req, res) => {
-  console.log("📥 Petición recibida desde n8n. Iniciando scraping de SEACE...");
+  console.log("📥 Petición recibida. Iniciando scraping en el Buscador Público SEACE...");
   let browser;
 
   try {
-    // Configuración para que Puppeteer funcione de forma segura en los servidores de Render
     browser = await puppeteer.launch({
       headless: true,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--single-process'
+        '--disable-web-security',
+        '--disable-features=IsolateOrigins,site-per-process'
       ]
     });
 
     const page = await browser.newPage();
     
-    // Cambiar el User-Agent para que SEACE no detecte que es un robot básico
+    // Simular un navegador real para evitar bloqueos del firewall de OSCE
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+    await page.setViewport({ width: 1280, height: 800 });
 
-    // 1. Ir a la página de búsqueda del SEACE (Ajusta la URL exacta si usas la del buscador avanzado)
-    const urlSeace = 'https://prod2.seace.gob.pe/seacebus-uiwd-pub/busqueda/buscador复合.xhtml'; // <-- Asegúrate de usar la URL pública del buscador que necesitas
+    // URL del Buscador Público proveída por el usuario
+    const urlSeace = 'https://prod2.seace.gob.pe/seacebus-uiwd-pub/buscadorPublico/buscadorPublico.xhtml';
+    
+    console.log("🔗 Navegando a SEACE...");
     await page.goto(urlSeace, { waitUntil: 'networkidle2', timeout: 60000 });
 
-    console.log("🔗 Página de SEACE cargada. Esperando selectores...");
+    // Esperamos a que el formulario base de PrimeFaces esté visible
+    await page.waitForSelector('form', { timeout: 20000 });
+    console.log("📝 Formulario cargado. Intentando lanzar búsqueda estándar...");
 
-    // 2. [Opcional] Si necesitas hacer clics en botones de "Buscar" o llenar formularios, se hace aquí:
-    // await page.click('#id_del_boton_buscar');
-    // await page.waitForTimeout(3000); // Esperar que refresque la tabla
+    // NOTA: El SEACE suele requerir el llenado de un año o captcha si la búsqueda es muy masiva. 
+    // Como prueba inicial para n8n, buscaremos el botón de búsqueda por su texto o clase PrimeFaces y le daremos clic.
+    // Usualmente el botón principal de búsqueda contiene la clase '.ui-button' o un ID específico de tipo 'btnBuscar'
+    
+    const botonBuscarSelector = 'button[id*="btnBuscar"], .ui-button'; 
+    if (await page.$(botonBuscarSelector) !== null) {
+        await page.click(botonBuscarSelector);
+        console.log("🖱️ Clic ejecutado en el botón Buscar. Esperando actualización de datos...");
+        
+        // Esperamos unos segundos a que la petición AJAX de PrimeFaces termine y cargue los resultados
+        await page.waitForTimeout(5000); 
+    } else {
+        console.log("⚠️ No se encontró un botón de búsqueda estandarizado, mapeando el HTML actual...");
+    }
 
-    // 3. Extraer el contenido de la tabla de convocatorias del día
-    // Evaluamos el contenido dentro del navegador
+    // Extraer las filas de la tabla estructurada de resultados (Patrón común de tablas PrimeFaces en SEACE)
     const datosProyectos = await page.evaluate(() => {
-      // Reemplaza '.clase-tabla-seace' por el selector real de la tabla de resultados de SEACE
-      const filas = document.querySelectorAll('table.ui-datatable-data tr'); 
+      // Las tablas dinámicas de PrimeFaces usan la clase '.ui-datatable-data tr'
+      const filas = document.querySelectorAll('.ui-datatable-data tr, table tbody tr'); 
       let resultados = [];
 
       filas.forEach(fila => {
         const columnas = fila.querySelectorAll('td');
-        if (columnas.length > 0) {
+        // Filtramos filas vacías o mensajes de "No se encontraron registros"
+        if (columnas.length > 2 && !fila.innerText.includes("No se encontraron")) {
           resultados.push({
-            entidad: columnas[0]?.innerText?.trim() || '',
-            objeto: columnas[1]?.innerText?.trim() || '',
-            monto: columnas[2]?.innerText?.trim() || '',
-            fecha: columnas[3]?.innerText?.trim() || ''
+            idConvocatoria: columnas[0]?.innerText?.trim() || '',
+            entidad: columnas[1]?.innerText?.trim() || '',
+            objetoContratacion: columnas[2]?.innerText?.trim() || '',
+            descripcion: columnas[3]?.innerText?.trim() || '',
+            montoEstimado: columnas[4]?.innerText?.trim() || '',
+            fechaPublicacion: columnas[5]?.innerText?.trim() || '',
+            estado: columnas[6]?.innerText?.trim() || ''
           });
         }
       });
       return resultados;
     });
 
-    console.log(`✅ Scraping completado con éxito. Se encontraron ${datosProyectos.length} registros.`);
+    console.log(`✅ Scraping finalizado. Registros capturados: ${datosProyectos.length}`);
     
-    // 4. Devolver los datos limpios en formato JSON directamente a tu n8n
+    // Enviamos la respuesta limpia a n8n
     res.json({
       success: true,
+      urlProcesada: urlSeace,
       timestamp: new Date().toISOString(),
+      total: datosProyectos.length,
       data: datosProyectos
     });
 
   } catch (error) {
-    console.error("❌ Error durante el scraping:", error.message);
+    console.error("❌ Error en el proceso de scraping:", error.message);
     res.status(500).json({ success: false, error: error.message });
   } finally {
     if (browser) {
       await browser.close();
-      console.log("🚪 Navegador cerrado.");
+      console.log("🚪 Navegador Puppeteer cerrado.");
     }
   }
+});
+
+app.listen(PORT, () => {
+  console.log(`Servidor escuchando en el puerto ${PORT}`);
 });
 
 app.listen(PORT, () => {
