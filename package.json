@@ -9,6 +9,6 @@
   },
   "dependencies": {
     "express": "^4.19.2",
-    "puppeteer": "^22.12.0"
+    "puppeteer": "^22.12.1"
   }
 }
