@@ -100,8 +100,8 @@ app.get('/scrape-seace', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Servidor escuchando en el puerto ${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Servidor escuchando correctamente en el puerto ${PORT}`);
 });
 
 app.listen(PORT, () => {
