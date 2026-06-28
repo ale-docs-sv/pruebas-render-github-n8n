@@ -4,7 +4,7 @@
   "description": "Scraper SEACE en Render",
   "main": "index.js",
   "scripts": {
-    "build": "npm install && npx puppeteer browsers install chrome",
+    "build": "npm install && node -e \"try { require('puppeteer-chromium-resolver')().then(res => console.log('Chromium instalado en:', res.executablePath)); } catch(e) { console.error(e); process.exit(1); }\"",
     "start": "node index.js"
   },
   "dependencies": {
